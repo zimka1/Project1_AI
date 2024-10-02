@@ -2,7 +2,7 @@ import random
 import os
 
 
-def generate_random_tests(num_tests=1, min_cities=25, max_cities=50, max_coordinate=30):
+def generate_random_tests(num_tests=1, min_cities=30, max_cities=30, max_coordinate=200):
     os.makedirs('test_cases', exist_ok=True)
 
     for test_num in range(num_tests):
