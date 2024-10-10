@@ -1,12 +1,13 @@
 import math
 import random
-import sys
+
+import matplotlib.pyplot as plt
 
 # Main algorithm parameters
 number_of_cities = 0
-number_of_singles_to_stop = 60  # Number of generations without improvement before stopping
-population_size = 250  # Population size
-children_size = int(population_size * 2 / 3)  # Number of children generated in each iteration
+number_of_identical_best_to_stop = 60  # Number of generations without improvement before stopping
+population_size = 80  # Population size
+children_size = int(population_size * 4 / 5)  # Number of children generated in each iteration
 
 # Mutation chances
 invert_mutation_chance = 0.25
@@ -67,17 +68,16 @@ def swap_mutation(child):
     child[a], child[b] = child[b], child[a]
     return child
 
-
 # Adjust the mutation chance based on how close we are to stopping
-def adaptive_mutation_chance(quantity_before_stopping):
-    quantity_before_stopping = 100 * quantity_before_stopping / number_of_singles_to_stop
+def adaptive_mutation_chance(number_of_identical_best):
+    plus_chance = 100 * number_of_identical_best / number_of_identical_best_to_stop
     base_chance = 0.1
-    return base_chance + 0.01 * quantity_before_stopping
+    return base_chance + 0.01 * plus_chance
 
 
 # Apply mutation to the child based on the current mutation chance
-def mutation(child, quantity_before_stopping):
-    mutation_chance = adaptive_mutation_chance(quantity_before_stopping)
+def mutation(child, number_of_identical_best):
+    mutation_chance = adaptive_mutation_chance(number_of_identical_best)
 
     if random.random() < mutation_chance:
         if random.random() < invert_mutation_chance:
@@ -93,7 +93,7 @@ def mutation(child, quantity_before_stopping):
 
 
 # Create a new child by combining segments of two parents and applying mutation
-def make_child(parent1, parent2, quantity_before_stopping):
+def make_child(parent1, parent2, number_of_identical_best):
     start, end = sorted(random.sample(range(number_of_cities), 2))
 
     child = [-1] * number_of_cities
@@ -106,30 +106,27 @@ def make_child(parent1, parent2, quantity_before_stopping):
                 parent2_index += 1
             child[i] = parent2[parent2_index]  # Fill in the rest from the second parent
 
-    child = mutation(child, quantity_before_stopping)  # Apply mutation
+    child = mutation(child, number_of_identical_best)  # Apply mutation
     return child
 
 
 # Perform crossover to create a new generation of children
-def crossover(top_parents, quantity_before_stopping):
+def crossover(top_parents, number_of_identical_best):
     queue_parents = random.sample(range(children_size), children_size)
     children = []
 
     for i in range(children_size):
         if i != children_size - 1:
-            child = make_child(top_parents[queue_parents[i]][2], top_parents[queue_parents[i + 1]][2], quantity_before_stopping)
+            child = make_child(top_parents[queue_parents[i]][2], top_parents[queue_parents[i + 1]][2],
+                               number_of_identical_best)
         else:
-            child = make_child(top_parents[queue_parents[i]][2], top_parents[queue_parents[0]][2], quantity_before_stopping)
+            child = make_child(top_parents[queue_parents[i]][2], top_parents[queue_parents[0]][2],
+                               number_of_identical_best)
 
         if child not in children:
             children.append(child)
 
     return children
-
-
-# Calculate the total fitness of the population
-def colculate_total_fitness(population):
-    return sum(ind[0] for ind in population)
 
 
 # Build cumulative probabilities for roulette selection
@@ -144,28 +141,65 @@ def build_cumulative_probabilities(population, total_fitness):
     return cumulative
 
 
-# Select one individual based on cumulative probabilities (roulette selection)
+# Select one individual based on cumulative probabilities
 def select_one(population, cumulative):
     chance = random.random()
 
     for i in range(population_size):
         if chance <= cumulative[i]:
-            if population[i] != [fitness(sys.maxsize), sys.maxsize, [0] * number_of_cities]:
-                return population[i]
+            return population[i]
 
     return population[-1]
 
 
-# Select all parents using roulette selection
-def select_all_parents(population):
-    total_fitness = colculate_total_fitness(population)
+# Select parent from roulette
+def roulette_selection(population):
+    total_fitness = sum(ind[0] for ind in population)
     cumulative = build_cumulative_probabilities(population, total_fitness)
-    selected = []
+    return select_one(population, cumulative)
 
-    for _ in range(children_size):
-        selected.append(select_one(population, cumulative))
+
+# Select parent from tournament
+def tournament_selection(population):
+    tournament = random.sample(population, population_size // 2)
+    tournament.sort(key=lambda x: x[0], reverse=True)
+    return tournament[0]
+
+
+# Hybrid selection: alternating between roulette and tournament selection
+def hybrid_parent_selection(population):
+    selected = []
+    for i in range(population_size):
+        if i % 2 == 0:
+            selected.append(roulette_selection(population))
+        else:
+            selected.append(tournament_selection(population))
 
     return selected
+
+
+
+# Function to plot the path (ChatGPT)
+def plot_path(cities_coordinates, best_path):
+    x_coords = [cities_coordinates[city][0] for city in best_path]
+    y_coords = [cities_coordinates[city][1] for city in best_path]
+
+    x_coords.append(cities_coordinates[best_path[0]][0])
+    y_coords.append(cities_coordinates[best_path[0]][1])
+
+    plt.figure(figsize=(10, 6))
+    plt.plot(x_coords, y_coords, '-o', color='blue', label='Path')  # Draw the path
+    plt.scatter(x_coords, y_coords, color='red', zorder=5)  # Highlight the cities
+    plt.title('Best Found Path')
+    plt.xlabel('X Coordinate')
+    plt.ylabel('Y Coordinate')
+
+    for i, city in enumerate(best_path):
+        plt.annotate(str(city), (cities_coordinates[city][0], cities_coordinates[city][1]))
+
+    plt.grid(True)
+    plt.legend()
+    plt.show()
 
 
 def main():
@@ -181,13 +215,14 @@ def main():
         row = []
         for j in range(number_of_cities):
             road_weight = round(
-                euclidean_distance(cities_coordinates[i][0], cities_coordinates[i][1], cities_coordinates[j][0], cities_coordinates[j][1]), 2
+                euclidean_distance(cities_coordinates[i][0], cities_coordinates[i][1], cities_coordinates[j][0],
+                                   cities_coordinates[j][1]), 2
             )
             row.append(road_weight)
         roads_weight.append(row)
 
     # Initialize population with random paths
-    population = [[fitness(sys.maxsize), sys.maxsize, [0] * number_of_cities] for _ in range(population_size)]
+    population = []
 
     for i in range(population_size):
         random_cities = random.sample(range(0, number_of_cities), number_of_cities)
@@ -195,8 +230,7 @@ def main():
 
         child = [fitness(distance), distance, random_cities]
 
-        if child not in population:
-            population[i] = child
+        population.append(child)
 
     population.sort(key=lambda x: x[0])
 
@@ -209,12 +243,12 @@ def main():
 
     stop_flag = 0
     last_best_fitness = 0
-    quantity_before_stopping = 0
+    number_of_identical_best = 0
     number_of_generations = 0
 
     while not stop_flag:
         # Create the next generation of children from selected parents
-        children = crossover(select_all_parents(population), quantity_before_stopping)
+        children = crossover(hybrid_parent_selection(population), number_of_identical_best)
 
         # Evaluate the fitness of each child and update the population
         for i in range(len(children)):
@@ -228,11 +262,11 @@ def main():
 
         # Check if the best fitness remains the same across generations
         if last_best_fitness == population[population_size - 1][0]:
-            quantity_before_stopping += 1
-            print(quantity_before_stopping)
+            number_of_identical_best += 1
+            print(number_of_identical_best)
         else:
             last_best_fitness = population[population_size - 1][0]
-            quantity_before_stopping = 1
+            number_of_identical_best = 1
 
             print(f"Generation number {number_of_generations}")
             for row in population:
@@ -240,7 +274,7 @@ def main():
             print("<<<<<<<<<<>>>>>>>>>>")
 
         # Stop the algorithm if no improvement for a specified number of generations
-        if quantity_before_stopping == number_of_singles_to_stop:
+        if number_of_identical_best == number_of_identical_best_to_stop:
             stop_flag = 1
 
         number_of_generations += 1
@@ -253,6 +287,8 @@ def main():
     print(f"Distance: {best_individual[1]}")
     print(f"Path: {best_individual[2]}")
     print("Number of generations:", number_of_generations)
+
+    plot_path(cities_coordinates, best_individual[2])
 
 
 if __name__ == "__main__":
